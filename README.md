@@ -14,4 +14,6 @@ make each command subscribe to the tick event
 
 rather than having everything in one tick event.
 
-make mining less buggy.
+make mining less buggy. 
+
+add more commands
