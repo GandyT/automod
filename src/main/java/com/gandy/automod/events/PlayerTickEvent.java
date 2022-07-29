@@ -3,6 +3,7 @@ package com.gandy.automod.events;
 import com.gandy.automod.CommandManager;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.block.material.Material;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.player.ClientPlayerEntity;
@@ -23,6 +24,7 @@ public class PlayerTickEvent {
 
     private Minecraft mc;
     private BlockPos foundWood = null;
+    private BlockState prevBlockState = null;
 
     public PlayerTickEvent () {
         mc = Minecraft.getInstance();
@@ -53,6 +55,7 @@ public class PlayerTickEvent {
                 int xReq = (int) Math.abs(foundWood.getX() - p.getPosX());
                 int yReq = (int) Math.abs(foundWood.getY() - p.getPosY());
                 int zReq = (int) Math.abs(foundWood.getZ() - p.getPosZ());
+                BlockPos playerSpawn = new BlockPos(foundWood.getX() - 1, foundWood.getY() - 1, foundWood.getZ());
 
                 if (xReq <= 1 && yReq < 6 && zReq <= 1) {
                     p.rotationYaw = -75;
@@ -61,20 +64,62 @@ public class PlayerTickEvent {
                     // break the wood
                     BlockState blockState = mc.world.getBlockState(foundWood);
                     if (blockState.getMaterial() == Material.AIR) {
+                        if (prevBlockState == null) {
+                            mc.world.setBlockState(playerSpawn, Blocks.AIR.getDefaultState());
+                            // tp player to safest spot
+                            BlockPos closestY = closestYBlock(p);
+                            teleport(p, closestY.getX(), closestY.getY() + 1, closestY.getZ());
+                        } else {
+                            mc.world.setBlockState(playerSpawn, prevBlockState);
+                        }
                         foundWood = null;
+                        prevBlockState = null;
                         return;
                     }
                     mc.playerController.onPlayerDamageBlock(foundWood, Direction.UP);
                 } else {
                     System.out.println("teleporting player to wood");
-                    MinecraftServer s = LogicalSidedProvider.INSTANCE.get(LogicalSide.SERVER);
-                    s.getCommandManager().handleCommand(s.getCommandSource(), "tp " + p.getName().getString() + " " + (foundWood.getX() - 1) + " " + foundWood.getY() + " " + foundWood.getZ());
+                    // set block under player to glass and save block to revert it later
+
+                    prevBlockState = mc.world.getBlockState(playerSpawn);
+                    mc.world.setBlockState(playerSpawn, Blocks.GLASS.getDefaultState());
+
+                    // tp player
+                    teleport(p, foundWood.getX() - 1, foundWood.getY(), foundWood.getZ());
                     // p.setPosition(foundWood.getX() - 1, foundWood.getY(), foundWood.getZ());
                 }
 
             }
         } else {
             foundWood = null;
+            prevBlockState = null;
+        }
+
+        if (CommandManager.getInstance().autoMineCommand.active) {
+            ClientPlayerEntity p = mc.player;
+            p.rotationPitch = 45;
+            KeyBinding.setKeyBindState(mc.gameSettings.keyBindForward.getKey(), true);
+            // press left click
+            Vector3d bv = mc.objectMouseOver.getHitVec();
+            BlockPos bp = new BlockPos(bv.getX(), bv.getY(), bv.getZ());
+
+            if (bv.getY() <= p.getPosY()) {
+                p.rotationPitch = 45;
+                return;
+            }
+
+            BlockState bs = mc.world.getBlockState(bp);
+            if(bs.getMaterial() == Material.AIR) {
+                if (p.rotationPitch < 70) {
+                    p.rotationPitch = 70;
+                } else {
+                    p.rotationPitch = 45;
+                }
+
+                return;
+            }
+
+            mc.playerController.onPlayerDamageBlock(bp, Direction.UP);
         }
     }
 
@@ -108,5 +153,22 @@ public class PlayerTickEvent {
         }
 
         return closest;
+    }
+
+    private BlockPos closestYBlock (ClientPlayerEntity player) {
+        BlockPos safe = new BlockPos((int) player.getPosX(), (int) player.getPosY(), (int) player.getPosZ());
+        BlockState safeState = mc.world.getBlockState(safe);
+
+        while (safeState.getMaterial() == Material.AIR) {
+            safe = new BlockPos(safe.getX(), safe.getY() - 1, safe.getZ());
+            safeState = mc.world.getBlockState(safe);
+        }
+
+        return safe;
+    }
+
+    private void teleport(ClientPlayerEntity player, int x, int y, int z) {
+        MinecraftServer s = LogicalSidedProvider.INSTANCE.get(LogicalSide.SERVER);
+        s.getCommandManager().handleCommand(s.getCommandSource(), "tp " + player.getName().getString() + " " + x + " " + y + " " + z);
     }
 }
